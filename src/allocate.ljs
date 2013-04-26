@@ -1,3 +1,5 @@
+extern totalSize, heapSize
+
 /*
    +---------------+ -
  0 | Heap  Pointer |

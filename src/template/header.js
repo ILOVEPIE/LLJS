@@ -1,4 +1,4 @@
-(function() {
+//(function() {
 
 if(!Math.imul) {
     Math.imul = function(x, y) { return x * y; };
@@ -21,7 +21,7 @@ var asm = (function (global, env, buffer) {
     var heapSize = env.HEAP_SIZE|0;
     var totalSize = env.TOTAL_SIZE|0;
 
-    {% imports %}
+    /*{% imports %}*/
 
     var U1 = new global.Uint8Array(buffer);
     var I1 = new global.Int8Array(buffer);
@@ -47,4 +47,8 @@ var asm = (function (global, env, buffer) {
     var atan2 = global.Math.atan2;
     var pow = global.Math.pow;
     var imul = global.Math.imul;
+
+    var base = 0;
+    var freep = 0;
+    var nUnitsMin = 1024;
 

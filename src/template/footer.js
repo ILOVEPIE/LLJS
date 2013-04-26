@@ -55,6 +55,8 @@
         }
     }
 
+    
+    
     function reset() {
       var $SP = 0;
       U4[((($SP) + 32 | 0) + 0 * 4) >> 2] = 4;
@@ -68,10 +70,12 @@
       nWords = (nBytes | 0 | 0) / 4 | 0 | 0;
       j = (U4[((($SP) + 32 | 0) + 0 * 4) >> 2] >>> 0 >>> 0) + (nWords | 0 | 0) | 0 | 0;
       if ((j | 0) > (heapSize | 0 | 0)) {
+        //print(int("anull sbrk"));
         return 0;
       }
       address = U4[((($SP) + 32 | 0) + 0 * 4) >> 2] | 0;
-      U4[(($SP) + 32 + 0 * 4) >> 2] = ((U4[(($SP) + 32 + 0 * 4) >> 2] >>> 0) + (nWords | 0) | 0) >>> 0;
+      U4[((($SP) + 32 | 0) + 0 * 4) >> 2] = ((U4[((($SP) + 32 | 0) + 0 * 4) >> 2] >>> 0) + (nWords | 0) | 0) >>> 0;
+      //print("address = " + address);
       return address | 0;
     }
     function morecore(nUnits) {
@@ -80,7 +84,7 @@
       if (nUnits >>> 0 < nUnitsMin >>> 0) {
         nUnits = nUnitsMin;
       }
-      buffer = sbrk(imul(nUnits | 0, 8)) | 0;
+      buffer = sbrk(imul(nUnits >>> 0, 8)) | 0;
       if ((~~buffer | 0) == 0) {
         return 0;
       }
@@ -99,18 +103,24 @@
       }
       i = 0;
       for (p = U4[(prevp) >> 2] | 0 | 0; (i | 0) < 10; prevp = p | 0, p = U4[(p) >> 2] | 0 | 0, (_ = i, i = (i | 0) + 1 | 0, _)) {
-        if ((U4[((p) + 4 | 0) >> 2] | 0) >>> 0 >= nUnits >>> 0) {
-          if ((U4[((p) + 4 | 0) >> 2] | 0) >>> 0 == nUnits >>> 0) {
+        //print("hue with psize = " + p->size + " and nUnits = " + nUnits );
+        if (U4[((p) + 4 | 0) >> 2] >>> 0 >>> 0 >= nUnits >>> 0) {
+          if (U4[((p) + 4 | 0) >> 2] >>> 0 >>> 0 == nUnits >>> 0) {
             U4[(prevp) >> 2] = U4[(p) >> 2] | 0;
           } else {
             U4[((p) + 4 | 0) >> 2] = ((U4[((p) + 4 | 0) >> 2] >>> 0) - (nUnits >>> 0) | 0) >>> 0;
-            p = (~~p | 0) + (imul(U4[((p) + 4 | 0) >> 2] | 0, 8) | 0) | 0 | 0;
+            //console.log(" p pre-resize = " + p + " as uint " + uint(p) + " as double " + double(p) )
+            //p + (U4[((p) + 4 | 0) >> 2] | 0) * 8
+            p = (~~p | 0) + (imul(U4[((p) + 4 | 0) >> 2] >>> 0, 8) | 0) | 0 | 0;
             U4[((p) + 4 | 0) >> 2] = nUnits;
           }
           freep = prevp | 0;
+          //print(" about to return p = " + p);
+          //print("     returning " + (byte*)(p + 1));
           return p + 1 * 8 | 0 | 0;
         }
         if (~~p >>> 0 == ~~freep >>> 0) {
+          //print("grabbing morecore");
           if ((p = morecore(nUnits) | 0) == 0) {
             return 0;
           }
@@ -129,6 +139,7 @@
             break;
           }
         }
+        //!(bp > p && bp < p->next)
         if (~~p >>> 0 >= ~~(U4[(p) >> 2] | 0) >>> 0) {
           if (~~bp >>> 0 > ~~p >>> 0) {
             break;
@@ -137,24 +148,22 @@
           }
         }
       }
-      comp1 = (~~bp | 0) + (imul(U4[((bp) + 4 | 0) >> 2] | 0, 8) | 0) | 0 | 0;
-      comp2 = (~~p | 0) + (imul(U4[((p) + 4 | 0) >> 2] | 0, 8) | 0) | 0 | 0;
+      comp1 = (~~bp | 0) + (imul(U4[((bp) + 4 | 0) >> 2] >>> 0, 8) | 0) | 0 | 0;
+      comp2 = (~~p | 0) + (imul(U4[((p) + 4 | 0) >> 2] >>> 0, 8) | 0) | 0 | 0;
       if (~~comp1 >>> 0 == ~~(U4[(p) >> 2] | 0) >>> 0) {
-        U4[((bp) + 4 | 0) >> 2] = ((U4[((bp) + 4 | 0) >> 2] >>> 0) + ((U4[((U4[(p) >> 2] | 0) + 4 | 0) >> 2] | 0) >>> 0) | 0) >>> 0;
+        U4[((bp) + 4 | 0) >> 2] = ((U4[((bp) + 4 | 0) >> 2] >>> 0) + (U4[((U4[(p) >> 2] | 0) + 4 | 0) >> 2] >>> 0 >>> 0) | 0) >>> 0;
         U4[(bp) >> 2] = U4[(U4[(p) >> 2] | 0) >> 2] | 0;
       } else {
         U4[(bp) >> 2] = U4[(p) >> 2] | 0;
       }
       if (~~comp2 >>> 0 == ~~bp >>> 0) {
-        U4[((p) + 4 | 0) >> 2] = ((U4[((p) + 4 | 0) >> 2] >>> 0) + ((U4[((bp) + 4 | 0) >> 2] | 0) >>> 0) | 0) >>> 0;
+        U4[((p) + 4 | 0) >> 2] = ((U4[((p) + 4 | 0) >> 2] >>> 0) + (U4[((bp) + 4 | 0) >> 2] >>> 0 >>> 0) | 0) >>> 0;
         U4[(p) >> 2] = U4[(bp) >> 2] | 0;
       } else {
         U4[(p) >> 2] = bp | 0;
       }
       freep = p | 0;
     }
-
-    reset();
 
     return { {% exports %} };
 
@@ -167,7 +176,7 @@
      Float32Array: Float32Array,
      Float64Array: Float64Array,
      Math: Math },
-   { {% externs %}
+   { /*{% externs %}*/
      HEAP_SIZE: HEAP_SIZE,
      STACK_SIZE: STACK_SIZE,
      TOTAL_SIZE: SIZE },
@@ -208,4 +217,4 @@ function end() {
 }
 
 {% finalize %}
-})();
+//})();
