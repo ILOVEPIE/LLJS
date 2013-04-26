@@ -3292,8 +3292,16 @@
             for ( var j = 0; j < curr.params.length; j++ ) {
 
                 var param = curr.params[j];
+                var decltype = curr.decltype.params[j];
 
                 ret += param.name;
+
+                if ( decltype.type === 'PointerType' ) {
+                    ret += '.ptr';
+                } else {
+                    ret += ' || 0';
+                }
+
                 if ( j + 1 !== curr.params.length ) {
                     ret += ', ';
                 }
@@ -3321,6 +3329,8 @@
 
                 if ( decltype.type === 'PointerType' ) {
                     methodCall += '.ptr';
+                } else {
+                    methodCall += ' || 0';
                 }
 
                 if ( j + 1 !== curr.params.length ) {
