@@ -1,4 +1,4 @@
-(function(globalObject) {
+//(function(globalObject) {
 
 if(!Math.imul) {
     Math.imul = function(a, b) { //taken from https://developer.mozilla.org/en-US/docs/JavaScript/Reference/Global_Objects/Math/imul 
@@ -55,7 +55,7 @@ var asm = (function (global, env, buffer) {
     var heapSize = env.HEAP_SIZE|0;
     var totalSize = env.TOTAL_SIZE|0;
 
-    {% imports %}
+    /*{% imports %}*/
 
     var U1 = new global.Uint8Array(buffer);
     var I1 = new global.Int8Array(buffer);

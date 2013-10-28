@@ -167,7 +167,7 @@
 
     return { {% exports %} };
 
-})(globalObject,
+})(self,
    { {% externs %}
      HEAP_SIZE: HEAP_SIZE,
      STACK_SIZE: STACK_SIZE,
@@ -176,4 +176,4 @@
    buffer);
 
 {% finalize %}
-})(self);
+//})(self);
