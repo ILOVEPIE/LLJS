@@ -12,7 +12,8 @@
   const BinaryExpression = T.BinaryExpression;
   const Literal = T.Literal;
   const MemberExpression = T.MemberExpression;
-
+  const SequenceExpression = T.SequenceExpression;
+  const UnaryExpression = T.UnaryExpression;
 
   function realign(expr, lalign) {
     assert(expr.ty instanceof Types.PointerType);
@@ -31,17 +32,35 @@
       op = ">>";
     }
 
+    //return expr;
     return new BinaryExpression(op, expr, new Literal(log2(ratio)), expr.loc);
   }
 
   function alignAddress(base, byteOffset, ty) {
-    var address = realign(base, ty.align.size);
-    if (byteOffset !== 0) {
+    //var address = realign(base, ty.align.size);
+    var address = base;
+
+    if(byteOffset != 0) {
       assert(isAlignedTo(byteOffset, ty.align.size), "unaligned byte offset " + byteOffset +
              " for type " + quote(ty) + " with alignment " + ty.align.size);
-      var offset = byteOffset / ty.align.size;
-      address = new BinaryExpression("+", address, new Literal(offset), address.loc);
+      address = forceType(
+        new BinaryExpression("+",
+                             address,
+                             new Literal(byteOffset), address.loc),
+        Types.i32ty
+      );
     }
+
+    // asm.js requires a byte pointer to be shifted the appropriate
+    // amount to access typed arrays
+
+    address = new BinaryExpression(
+      ">>",
+      address,
+      new Literal(log2(ty.align.size)),
+      address.loc
+    );
+
     // Remember (coerce) the type of the address for realign, but *do not* cast.
     address.ty = new Types.PointerType(ty);
     return address;
@@ -49,10 +68,13 @@
 
   function dereference(address, byteOffset, ty, scope, loc) {
     assert(scope);
+    address = copy(address, address.ty);
     address = alignAddress(address, byteOffset, ty);
+
     var expr;
-    if (ty.arraySize) {
-      expr = address;
+    if (ty instanceof Types.ArrayType) {
+      // Remove the bitshift to access the raw byte pointer
+      expr = address.left;
     } else {
       expr = new MemberExpression(scope.getView(ty), address, true, loc);
     }
@@ -61,6 +83,25 @@
     return expr;
   }
 
+  function forceType(expr, type, forceSigned) {
+    if(type || expr.ty) {
+      type = type || expr.ty;
+
+      if(type.numeric && !type.integral) {
+        return cast(new UnaryExpression('+', expr), expr.ty);
+      }
+      else {
+        if(type.signed || forceSigned || type instanceof Types.PointerType) {
+          return cast(new BinaryExpression('|', expr, new Literal(0)), expr.ty);
+        }
+        else {
+          return cast(new BinaryExpression('>>>', expr, new Literal(0)), expr.ty);
+        }
+      }
+    }
+
+    return expr;
+  }
 
   function isInteger(x) {
     return (parseInt(x) | 0) === Number(x);
@@ -127,11 +168,17 @@
     return s;
   }
 
-  function cast(node, ty, force) {
-    if ((node.ty || force) && node.ty !== ty) {
+  function cast(node, ty, force, really) {
+    if ((node.ty || force) && (node.ty !== ty || really)) {
       node = new CastExpression(undefined, node, node.loc);
       node.force = force;
     }
+    node.ty = ty;
+    return node;
+  }
+
+  function copy(node, ty) {
+    node = new SequenceExpression([node], node.loc);
     node.ty = ty;
     return node;
   }
@@ -274,7 +321,11 @@
           var s = spec[i];
           str += indent;
           if (s.name) {
-            str += flushLeft("-" + s.short, 4) + flushLeft("--" + s.name, 18);
+            if (s.short) {
+              str += flushLeft("-" + s.short, 4) + flushLeft("--" + s.name, 18);
+            } else {
+              str += flushLeft("", 4) + flushLeft("--" + s.name, 18);
+            }
           } else {
             str += flushLeft("-" + s.short, 22);
           }
@@ -527,5 +578,6 @@
   exports.alignTo = alignTo;
   exports.dereference = dereference;
   exports.realign = realign;
+  exports.forceType = forceType;
 
 }(typeof exports === 'undefined' ? (util = {}) : exports));

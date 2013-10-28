@@ -27,9 +27,12 @@
 
   function StructType(name) {
     this.name = name;
+    this.members = [];
     this.fields = [];
     this.offset = 0;
     this.isUnion = false;
+    this.staticType = this instanceof StructStaticType ?
+                      this : new StructStaticType(this);
   }
 
   StructType.prototype.toString = function (lvl) {
@@ -44,19 +47,26 @@
     return s + " }";
   };
 
-  StructType.prototype.getField = function getField(name) {
-    var fields = this.fields;
-    for (var i = 0; i < fields.length; i++) {
-      if (fields[i].name === name) {
-        return fields[i];
+  StructType.prototype.getMember = function getMember(name) {
+    var members = this.members;
+    for (var i = 0; i < members.length; i++) {
+      if (members[i].name === name) {
+        return members[i];
       }
     }
     return null;
   };
 
+  function StructStaticType(type) {
+    this.instanceType = type;
+    StructType.call(this, type.name + "_Static");
+  }
+
+  StructStaticType.prototype = Object.create(StructType.prototype);
+
   function PointerType(base) {
     this.base = base;
-  };
+  }
 
   PointerType.prototype.defaultValue = 0;
   PointerType.prototype.size = 4;
@@ -65,6 +75,34 @@
     lvl = lvl || 0;
     return tystr(this.base, lvl + 1) + "*";
   };
+
+  function ArrayType(base, length) {
+    PointerType.call(this, base);
+    this.length = length;
+  }
+
+  ArrayType.prototype = Object.create(PointerType.prototype);
+  ArrayType.prototype.toString = function (lvl) {
+    lvl = lvl || 0;
+    var lengths = "";
+    var base = this;
+    while (base instanceof ArrayType) {
+      lengths += '[' + (base.length !== undefined ? base.length : "*") + ']';
+      base = base.base;
+    }
+    return tystr(base, lvl + 1) + lengths;
+  };
+  /**
+   * Gets the root element type.
+   */
+  ArrayType.prototype.getRoot = function () {
+    var base = this;
+    while (base instanceof ArrayType) {
+      base = base.base;
+    }
+    return base;
+  };
+  ArrayType.prototype.defaultValue = undefined;
 
   function ArrowType(paramTypes, returnType) {
     this.paramTypes = paramTypes;
@@ -104,11 +142,11 @@
   }
 
   const memcpyTy  = createMemcpyType(bytePointerTy);
-  const memcpy2Ty = createMemcpyType(new PointerType(u16ty));
-  const memcpy4Ty = createMemcpyType(new PointerType(u32ty));
+  // const memcpy2Ty = createMemcpyType(new PointerType(u16ty));
+  // const memcpy4Ty = createMemcpyType(new PointerType(u32ty));
   const memsetTy  = createMemsetType(bytePointerTy);
-  const memset2Ty = createMemsetType(new PointerType(u16ty));
-  const memset4Ty = createMemsetType(new PointerType(u32ty));
+  // const memset2Ty = createMemsetType(new PointerType(u16ty));
+  // const memset4Ty = createMemsetType(new PointerType(u32ty));
 
   u8ty.integral = u8ty.numeric = true;
   i8ty.integral = i8ty.numeric = true;
@@ -132,6 +170,7 @@
     num:    f64ty,
     int:    i32ty,
     uint:   u32ty,
+    bool:   i32ty,
     float:  f32ty,
     double: f64ty,
 
@@ -148,7 +187,9 @@
   exports.TypeAlias = TypeAlias;
   exports.PrimitiveType = PrimitiveType;
   exports.StructType = StructType;
+  exports.StructStaticType = StructStaticType;
   exports.PointerType = PointerType;
+  exports.ArrayType = ArrayType;
   exports.ArrowType = ArrowType;
   exports.builtinTypes = builtinTypes;
 
@@ -171,5 +212,13 @@
 
   exports.mallocTy = mallocTy;
   exports.freeTy = freeTy;
+
+  exports.memsetTy = memsetTy;
+  // exports.memset2Ty = memset2Ty;
+  // exports.memset4Ty = memset4Ty;
+
+  exports.memcpyTy = memcpyTy;
+  // exports.memcpy2Ty = memcpy2Ty;
+  // exports.memcpy4Ty = memcpy4Ty;
 
 }).call(this, typeof exports === "undefined" ? (Types = {}) : exports);

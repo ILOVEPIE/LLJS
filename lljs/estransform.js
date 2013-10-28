@@ -20,7 +20,7 @@
 
     BlockStatement: {
       extends: "Statement",
-      fields:  ["@body"]
+      fields:  ["@body", "@inline"]
     },
 
     ExpressionStatement: {
@@ -108,17 +108,17 @@
 
     FunctionDeclaration: {
       extends: "Declaration",
-      fields:  ["@id", "@params", "@body", "@decltype", "generator", "expression"]
+      fields:  ["@id", "@modifiers", "@params", "@body", "@decltype", "generator", "expression"]
     },
 
     VariableDeclaration: {
       extends: "Declaration",
-      fields:  ["kind", "@declarations"]
+      fields:  ["kind", "@declarations", "global"]
     },
 
     VariableDeclarator: {
       extends: "Node",
-      fields:  ["@id", "@init", "@decltype", "@arguments"]
+      fields:  ["@id", "@init", "@decltype", "@arguments", "global"]
     },
 
     Expression: {
@@ -131,7 +131,7 @@
 
     ArrayExpression: {
       extends: "Expression",
-      fields:  ["elements"]
+      fields:  ["@elements"]
     },
 
     ObjectExpression: {
@@ -250,7 +250,7 @@
 
     Literal: {
       extends: "Expression",
-      fields:  ["value"]
+      fields:  ["value", "forceDouble"]
     },
 
     Type: {
@@ -259,17 +259,22 @@
 
     PointerType: {
       extends: "Type",
-      fields: ["@base", "arraySize"]
+      fields: ["@base"]
+    },
+
+    ArrayType: {
+      extends: "PointerType",
+      fields: ["length"]
     },
 
     StructType: {
       extends: "Type",
-      fields: ["@id", "@fields", "isUnion"]
+      fields: ["@id", "@members", "isUnion"]
     },
 
-    FieldDeclarator: {
+    MemberDeclarator: {
       extends: "Node",
-      fields: ["@id", "@decltype"]
+      fields: ["modifiers", "@declarator"]
     },
 
     ArrowType: {
@@ -367,7 +372,9 @@
         if (child instanceof Array) {
           arr = this[children[i]] = [];
           for (var k = 0, l = child.length; k < l; k++) {
-            if (typeof child[k][name] === "function") {
+            if (!child[k]) {
+              arr.push(child[k]);
+            } else if (typeof child[k][name] === "function") {
               trans = child[k][name](o);
               if (trans !== null) {
                 arr.push(trans);
@@ -403,6 +410,10 @@
   };
 
   exports.lift = function lift(raw) {
+    if (!raw) {
+      return raw;
+    }
+    
     if (raw instanceof Array) {
       return raw.map(function (r) {
         return lift(r);
@@ -435,6 +446,9 @@
   };
 
   exports.flatten = function flatten(node) {
+    if (!node) {
+      return node;
+    }
     if (node instanceof Array) {
       return node.map(function (n) {
         return flatten(n);

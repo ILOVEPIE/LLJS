@@ -7,6 +7,13 @@
   var mode;
   if (typeof process !== "undefined") {
     mode = NODE_JS;
+    // Install compiler as an extension for '.ljs' files that are loaded using the
+    // |require| function. This is how mocha tests are executed.
+    var fs = require('fs');
+    require.extensions['.ljs'] = function(module, filename) {
+      var source = fs.readFileSync(filename, 'utf8');
+      return module._compile(compile(source, {filename: filename, memcheck: false}), filename);
+    };
   } else if (typeof snarf !== "undefined") {
     mode = JS_SHELL;
   } else {
@@ -68,7 +75,7 @@
     var spec = lang[node.type];
     if (!spec) {
       s += " ???\n";
-      return;
+      return s;
     }
 
     var fields = allFields(spec);
@@ -101,23 +108,24 @@
     }
 
     s += "\n" + children.join("");
-
     return s;
   }
 
   function cli() {
     var optparser = new util.OptParser([
+      ["m",           "module-name",  "", "Export asm module as this name"],
+      ["e",           "exported-funcs", "main", "Functions to export from the asm module (comma-delimited)"],
       ["E",           "only-parse",   false, "Only parse"],
       ["A",           "emit-ast",     false, "Do not generate JS, emit AST"],
       ["P",           "pretty-print", false, "Pretty-print AST instead of emitting JSON (with -A)"],
       ["b",           "bare",         false, "Do not wrap in a module"],
-      ["l",           "load-instead", false, "Emit load('memory') instead of require('memory')"],
+      // ["l",           "load-instead", false, "Emit load('memory') instead of require('memory')"],
       ["W",           "warn",         true,  "Print warnings (enabled by default)"],
       ["Wconversion",  null,          false, "Print intra-integer and pointer conversion warnings"],
       ["0",           "simple-log",   false, "Log simple messages. No colors and snippets."],
       ["t",           "trace",        false, "Trace compiler execution"],
       ["o",           "output",       "",    "Output file name"],
-      ["m",           "memcheck",     false, "Compile with memcheck instrumentation"],
+      // ["m",           "memcheck",     false, "Compile with memcheck instrumentation"],
       ["h",           "help",         false, "Print this message"],
       ["w",           "nowarn",       false, "Inhibit all warning messages"]
     ]);
@@ -143,7 +151,9 @@
     basename = basename.substr(0, basename.lastIndexOf(".")) || basename;
 
     var source = snarf(filename);
-    var code = compile(basename, filename, source, options);
+    options.filename = filename;
+    options.basename = basename;
+    var code = compile(source, options);
 
     if (options["pretty-print"]) {
       print(pretty(code));
@@ -167,7 +177,7 @@
     }
   }
 
-  function compile(name, logName, source, options) {
+  function compile(source, options) {
     // -W anything infers -W.
     for (var p in options) {
       if (p.charAt(0) === "W") {
@@ -180,22 +190,49 @@
       options.warn = false;
     }
 
-    var logger = new util.Logger("ljc", logName, source, options);
+    var logger = new util.Logger("ljc", options.filename, source, options);
     var code;
 
     try {
       var node = esprima.parse(source, { loc: true, comment: true, range: true, tokens: true });
-
       node = escodegen.attachComments(node, node.comments, node.tokens);
 
       if (options["only-parse"]) {
         code = node;
       } else {
-        node = compiler.compile(node, name, logger, options);
+        var data = compiler.compile(node, options.filename, logger, options);
+        var externs = data.externs;
+        var exports = options['exported-funcs'].split(',');
+        node = data.node;
+
         if (options["emit-ast"]) {
           code = node;
         } else {
-          code = escodegen.generate(node, { base: "", indent: "  ", comment: true });
+          code = snarf(__dirname + '/template/header.js').toString().replace(
+            '{% imports %}',
+            externs.map(function(e) {
+              return 'var ' + e + ' = env.' + e + ';';
+            }).join('\n')
+          );
+
+          code += escodegen.generate(node, { base: "", indent: "  ", comment: true });
+
+          code += snarf(__dirname + '/template/footer.js').toString().replace(
+            '{% externs %}',
+            externs.map(function(e) {
+              return e + ': ' + e + ',';
+            }).join('\n')
+          ).replace(
+            '{% exports %}',
+            exports.map(function(e) {
+              return e + ': ' + e;
+            }).join(',\n')
+          ).replace(
+            '{% finalize %}',
+            (options['module-name'] ?
+             'window.' + options['module-name'] + ' = asm;' :
+             'asm.main();')
+          );
         }
       }
     } catch (e) {

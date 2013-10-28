@@ -47,6 +47,7 @@
   const cast = util.cast;
   const alignTo = util.alignTo;
   const dereference = util.dereference;
+  const forceType = util.forceType;
 
   /**
    * Import types.
@@ -55,17 +56,18 @@
   const PrimitiveType = Types.PrimitiveType;
   const StructType = Types.StructType;
   const PointerType = Types.PointerType;
+  const ArrayType = Types.ArrayType;
   const ArrowType = Types.ArrowType;
 
   /**
    * Scopes and Variables
    */
 
-  function Variable(name, type) {
+  function Variable(name, type, global) {
     this.name = name;
     this.type = type;
-    this.isStackAllocated = (type instanceof StructType ||
-                             (type && type.arraySize !== undefined));
+    this.global = global;
+    this.isStackAllocated = (type instanceof StructType || type instanceof ArrayType);
   }
 
   Variable.prototype.toString = function () {
@@ -74,9 +76,24 @@
 
   Variable.prototype.getStackAccess = function getStackAccess(scope, loc) {
     assert(this.isStackAllocated);
-    assert(typeof this.wordOffset !== "undefined", "stack-allocated variable offset not computed.");
-    var byteOffset = this.wordOffset * Types.wordTy.size;
-    return dereference(scope.SP(), byteOffset, this.type, scope, loc);
+    assert(typeof this.byteOffset !== "undefined", "stack-allocated variable offset not computed.");
+    var byteOffset = this.byteOffset;
+    var sp;
+    if(this.global) {
+      sp = forceType(
+        new BinaryExpression(
+          '-',
+          new Identifier('totalSize'),
+          new Identifier('globalSP')
+        ),
+        Types.i32ty
+      );
+    }
+    else {
+      sp = scope.SP();
+    }
+
+    return dereference(sp, byteOffset, this.type, scope, loc);
   };
 
   function Scope(parent, name) {
@@ -85,6 +102,7 @@
     this.root = parent.root;
     this.variables = Object.create(null);
     this.frame = parent.frame;
+
     assert(this.frame instanceof Frame);
   }
 
@@ -101,11 +119,32 @@
     return null;
   };
 
+  Scope.prototype.addVariable = function addVariable(variable, external) {
+    assert(variable);
+    assert(!variable.frame);
+    assert(!this.variables[variable.name], "Scope already has a variable named " + variable.name);
+    variable.frame = this.frame;
+
+    var variables = this.variables;
+    var name = variable.name;
+
+    variables[name] = variable;
+    if (!external) {
+      variable.name = this.freshName(name, variable);
+      this.frame.scopedVariables[variable.name] = variable;
+    }
+
+    //console.log("added variable " + variable + " to scope " + this);
+ };
+
   Scope.prototype.freshName = function freshName(name, variable) {
     var mangles = this.frame.mangles;
     var fresh = 0;
     var freshName = name;
-    while (mangles[freshName]) {
+
+    // Mangle the name if it clases with anything in the root's scope
+    // because it gives us control over the scope (easier for asm.js)
+    while (mangles[freshName] || this.root.mangles[freshName]) {
       freshName = name + "$" + ++fresh;
     }
     if (variable) {
@@ -146,23 +185,6 @@
     return { def: node, use: node };
   };
 
-  Scope.prototype.addVariable = function addVariable(variable, external) {
-    assert(variable);
-    assert(!variable.frame);
-    assert(!this.variables[variable.name], "Scope already has a variable named " + variable.name);
-    variable.frame = this.frame;
-
-    var variables = this.variables;
-    var name = variable.name;
-
-    variables[name] = variable;
-    if (!external) {
-      variable.name = this.freshName(name, variable);
-    }
-
-    //logger.info("added variable " + variable + " to scope " + this);
-  };
-
   Scope.prototype.MEMORY = function MEMORY() {
     return this.root.MEMORY();
   };
@@ -186,18 +208,18 @@
   Scope.prototype.MEMSET = function MEMSET(size) {
     return this.frame.MEMSET(size);
   };
-  
-  Scope.prototype.MEMCHECK_CALL_PUSH = function MEMCHECK_CALL_PUSH() {
-    return this.frame.MEMCHECK_CALL_PUSH();
-  };
-  
-  Scope.prototype.MEMCHECK_CALL_RESET = function MEMCHECK_CALL_RESET() {
-    return this.frame.MEMCHECK_CALL_RESET();
-  };
-  
-  Scope.prototype.MEMCHECK_CALL_POP = function MEMCHECK_CALL_POP() {
-    return this.frame.MEMCHECK_CALL_POP();
-  };
+
+  // Scope.prototype.MEMCHECK_CALL_PUSH = function MEMCHECK_CALL_PUSH() {
+  //   return this.frame.MEMCHECK_CALL_PUSH();
+  // };
+
+  // Scope.prototype.MEMCHECK_CALL_RESET = function MEMCHECK_CALL_RESET() {
+  //   return this.frame.MEMCHECK_CALL_RESET();
+  // };
+
+  // Scope.prototype.MEMCHECK_CALL_POP = function MEMCHECK_CALL_POP() {
+  //   return this.frame.MEMCHECK_CALL_POP();
+  // };
 
   Scope.prototype.toString = function () {
     return this.name;
@@ -211,70 +233,50 @@
     this.cachedLocals = Object.create(null);
     this.frame = this;
     this.mangles = Object.create(null);
+    this.scopedVariables = Object.create(null);
   }
 
   Frame.prototype = Object.create(Scope.prototype);
 
-  function getCachedLocal(frame, name, ty) {
-    var cachedLocals = frame.cachedLocals;
-    var cname = "$" + name;
-    if (!cachedLocals[cname]) {
-      var id = cast(new Identifier(frame.freshVariable(cname, ty).name), ty);
-      var init = new MemberExpression(frame.root.MEMORY(), new Identifier(name), false);
-      cachedLocals[cname] = new VariableDeclarator(id, init, false);
-    }
-    return cachedLocals[cname].id;
+  function getBuiltin(frame, name, ty) {
+    return cast(new Identifier(frame.root.getVariable(name).name), ty);
   }
 
-  Frame.prototype.MEMORY = function MEMORY() {
-    assert(this.root === this);
-    if (!this.cachedMEMORY) {
-      this.cachedMEMORY = new Identifier(this.freshVariable("$M").name);
-    }
-    return this.cachedMEMORY;
-  };
+  // Frame.prototype.MEMORY = function MEMORY() {
+  //   assert(this.root === this);
+  //   if (!this.cachedMEMORY) {
+  //     this.cachedMEMORY = new Identifier(this.freshVariable("$M").name);
+  //   }
+  //   return this.cachedMEMORY;
+  // };
 
   Frame.prototype.MALLOC = function MALLOC() {
-    return getCachedLocal(this, "malloc", Types.mallocTy);
+    return getBuiltin(this, 'malloc', Types.mallocTy);
   };
 
   Frame.prototype.FREE = function FREE() {
-    return getCachedLocal(this, "free", Types.freeTy);
+    return getBuiltin(this, 'free', Types.freeTy);
   };
 
   Frame.prototype.MEMCPY = function MEMCPY(size) {
-    assert(size === 1 || size === 2 || size === 4);
-    var name, ty;
-    switch (size) {
-    case 1: name = "memcpy"; ty = Types.memcpyTy; break;
-    case 2: name = "memcpy2"; ty = Types.memcpy2Ty; break;
-    case 4: name = "memcpy4"; ty = Types.memcpy4Ty; break;
-    }
-    return getCachedLocal(this, name, ty);
+    return getBuiltin(this, 'memcpy', Types.memcpyTy);
   };
 
   Frame.prototype.MEMSET = function MEMSET(size) {
-    assert(size === 1 || size === 2 || size === 4);
-    var name, ty;
-    switch (size) {
-    case 1: name = "memset"; ty = Types.memsetTy; break;
-    case 2: name = "memset2"; ty = Types.memset2Ty; break;
-    case 4: name = "memset4"; ty = Types.memset4Ty; break;
-    }
-    return getCachedLocal(this, name, ty);
+    return getBuiltin(this, 'memset', Types.memsetTy);
   };
-  
-  Frame.prototype.MEMCHECK_CALL_PUSH = function MEMCHECK_CALL_PUSH() {
-    return getCachedLocal(this, "memcheck_call_push", "dyn");
-  };
-  
-  Frame.prototype.MEMCHECK_CALL_RESET = function MEMCHECK_CALL_RESET() {
-    return getCachedLocal(this, "memcheck_call_reset", "dyn");
-  };
-  
-  Frame.prototype.MEMCHECK_CALL_POP = function MEMCHECK_CALL_POP() {
-    return getCachedLocal(this, "memcheck_call_pop", "dyn");
-  };
+
+  // Frame.prototype.MEMCHECK_CALL_PUSH = function MEMCHECK_CALL_PUSH() {
+  //   return getCachedLocal(this, "memcheck_call_push", "dyn");
+  // };
+
+  // Frame.prototype.MEMCHECK_CALL_RESET = function MEMCHECK_CALL_RESET() {
+  //   return getCachedLocal(this, "memcheck_call_reset", "dyn");
+  // };
+
+  // Frame.prototype.MEMCHECK_CALL_POP = function MEMCHECK_CALL_POP() {
+  //   return getCachedLocal(this, "memcheck_call_pop", "dyn");
+  // };
 
   Frame.prototype.getView = function getView(ty) {
     assert(ty);
@@ -282,9 +284,9 @@
 
     var alignType = ty.align;
     if (typeof alignType.signed === "undefined") {
-      return getCachedLocal(this, "F" + alignType.size);
+      return getBuiltin(this, "F" + alignType.size);
     }
-    return getCachedLocal(this, (alignType.signed ? "I" : "U") + alignType.size);
+    return getBuiltin(this, (alignType.signed ? "I" : "U") + alignType.size);
   };
 
   Frame.prototype.SP = function SP() {
@@ -300,26 +302,27 @@
 
   Frame.prototype.close = function close() {
     const wordSize = Types.wordTy.size;
-    var wordOffset = 0;
+    var byteOffset = 0;
     var mangles = this.mangles;
-    // The SP and frame sizes are in *words*, since we expect most accesses
-    // are to ints, but the alignment is by *double word*, to fit doubles.
+
+    // The SP and frame sizes are in *bytes*, but the alignment is by
+    // *double word*, to fit doubles.
     for (var name in mangles) {
       var variable = mangles[name];
       if (mangles[name].isStackAllocated) {
         var size = variable.type.size;
-        variable.wordOffset = wordOffset;
-        wordOffset += alignTo(size, wordSize * 2) / wordSize;
+        variable.byteOffset = byteOffset;
+        byteOffset += alignTo(size, wordSize * 2);
       }
     }
 
-    this.frameSizeInWords = wordOffset;
+    this.frameSize = byteOffset;
   };
 
   exports.Variable = Variable;
   exports.Scope = Scope;
   exports.Frame = Frame;
-  exports.getCachedLocal = getCachedLocal;
+  //exports.getCachedLocal = getCachedLocal;
 
 }).call(this, typeof exports === "undefined" ? (scope = {}) : exports);
 
