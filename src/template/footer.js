@@ -167,16 +167,8 @@
 
     return { {% exports %} };
 
-})({ Uint8Array: Uint8Array,
-     Int8Array: Int8Array,
-     Uint16Array: Uint16Array,
-     Int16Array: Int16Array,
-     Uint32Array: Uint32Array,
-     Int32Array: Int32Array,
-     Float32Array: Float32Array,
-     Float64Array: Float64Array,
-     Math: Math },
-   { /*{% externs %}*/
+})(globalObject,
+   { {% externs %}
      HEAP_SIZE: HEAP_SIZE,
      STACK_SIZE: STACK_SIZE,
      TOTAL_SIZE: SIZE,
@@ -184,4 +176,4 @@
    buffer);
 
 {% finalize %}
-//})();
+})(self);
